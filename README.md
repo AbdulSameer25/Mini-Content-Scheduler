@@ -174,3 +174,50 @@ Went with a simple `setInterval` poll against Postgres rather than BullMQ, to ke
 
 \[Fill in honestly: which parts you used Claude for vs. wrote/adjusted yourself — e.g. "used Claude to scaffold the initial project structure and the atomic-claim SQL pattern; wrote the route handlers and debugged the Windows/Docker/WSL setup myself."]
 
+## Containerization & Deployment
+
+### Docker (local)
+
+The API and worker share one image, built from a multi-stage `Dockerfile`
+(deps stage installs production-only packages; runtime stage copies just
+`node_modules` + `src`, runs as a non-root user, ships no dev tooling).
+
+```bash
+docker-compose up --build
+```
+
+This brings up Postgres, Redis, the API, and the worker together. The
+`api`/`worker` services wait for Postgres and Redis to report healthy
+(via `healthcheck` + `depends_on: condition: service_healthy`) before
+starting, so there's no startup race.
+
+### Kubernetes (manifests only — not a live deployment)
+
+Manifests live in `k8s/`:
+
+| File | Purpose |
+|---|---|
+| `configmap.yaml` | Non-secret config (`PORT`) |
+| `secret.yaml` | `DATABASE_URL`, `REDIS_URL` (base64-encoded placeholders — see file header) |
+| `deployment-api.yaml` | API Deployment, 2 replicas, resource requests/limits set, readiness+liveness probes on `/health` |
+| `service-api.yaml` | ClusterIP Service exposing the API internally |
+| `deployment-worker.yaml` | Worker Deployment, same image as the API with the command overridden |
+
+Would apply with:
+```bash
+kubectl apply -f k8s/
+```
+
+**Worker strategy: separate Deployment, not a Job/CronJob.**
+The worker is a long-running process (`setInterval` polling loop), not a
+one-shot task — it never exits on its own. A `Job`/`CronJob` is the right
+shape for something that runs to completion and stops; ours doesn't, so a
+`Deployment` (same restart-on-crash guarantees as the API, just no Service
+in front of it since nothing calls it over the network) is the correct fit.
+
+It intentionally runs as `replicas: 1`. It *could* safely run more —
+the atomic `UPDATE ... WHERE status = 'PENDING'` claim from the core
+scheduler logic means multiple worker replicas can't double-publish the
+same post — but one replica already clears the current workload, so we
+don't add more without a throughput reason to.
+

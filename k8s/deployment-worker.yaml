@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mini-scheduler-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mini-scheduler-worker
+  template:
+    metadata:
+      labels:
+        app: mini-scheduler-worker
+    spec:
+      containers:
+        - name: worker
+          image: mini-scheduler-api:latest # same image as the API
+          command: ["node", "src/worker/index.js"]
+          envFrom:
+            - configMapRef:
+                name: mini-scheduler-config
+            - secretRef:
+                name: mini-scheduler-secret
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "300m"
+              memory: "256Mi"

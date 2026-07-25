@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mini-scheduler-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mini-scheduler-api
+  template:
+    metadata:
+      labels:
+        app: mini-scheduler-api
+    spec:
+      containers:
+        - name: api
+          image: mini-scheduler-api:latest
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: mini-scheduler-config
+            - secretRef:
+                name: mini-scheduler-secret
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 20
